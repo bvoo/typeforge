@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SurveyStatus {
+  draft
+  published
+  archived
+}
+
+enum DeleteStrategy {
+  hard
+  crypto_erase
+}
+
+model Survey {
+  id        String       @id @default(cuid())
+  ownerId   String
+  slug      String       @unique
+  title     String
+  status    SurveyStatus @default(draft)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  // Relations
+  versions         SurveyVersion[]  @relation("SurveyVersions")
+  submissions      Submission[]
+  retentionPolicy  RetentionPolicy?
+  currentVersionId String?          @unique
+  currentVersion   SurveyVersion?   @relation("CurrentSurveyVersion", fields: [currentVersionId], references: [id])
+
+  @@index([ownerId, slug])
+}
+
+model SurveyVersion {
+  id          String    @id @default(cuid())
+  surveyId    String
+  survey      Survey    @relation("SurveyVersions", fields: [surveyId], references: [id], onDelete: Cascade)
+  version     Int
+  schemaJson  Json
+  publishedAt DateTime?
+  isCurrent   Boolean   @default(false)
+
+  // Relations
+  currentFor  Survey?      @relation("CurrentSurveyVersion")
+  submissions Submission[]
+
+  @@unique([surveyId, version])
+  @@index([surveyId, isCurrent])
+}
+
+model Submission {
+  id                  String        @id @default(cuid())
+  surveyId            String
+  survey              Survey        @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  versionId           String
+  version             SurveyVersion @relation(fields: [versionId], references: [id])
+  submittedAt         DateTime      @default(now())
+  retentionDeadlineAt DateTime?
+  deletedAt           DateTime?
+
+  // Relations
+  secure SubmissionSecure?
+
+  @@index([surveyId])
+  @@index([versionId])
+  @@index([retentionDeadlineAt])
+}
+
+model SubmissionSecure {
+  submissionId String     @id
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  keyId      String
+  iv         Bytes
+  authTag    Bytes
+  ciphertext Bytes
+}
+
+model RetentionPolicy {
+  id             String         @id @default(cuid())
+  surveyId       String         @unique
+  survey         Survey         @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  daysToRetain   Int
+  deleteStrategy DeleteStrategy @default(hard)
+  createdAt      DateTime       @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  targetType String
+  targetId   String
+  metaJson   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([action])
+  @@index([createdAt])
+}
